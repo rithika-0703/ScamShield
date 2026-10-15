@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>ScamShield</title>
+<style>
+:root{--bg:#EEF1F6;--card:#fff;--ink:#14213D;--mut:#5C6784;--line:#D9DFEA;--pri:#14213D;--onpri:#fff;--ok:#1B8A6B;--mid:#B87500;--bad:#C8102E;--hl:#FFE3E6;
+box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media(prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#0D1424;--card:#172038;--ink:#EAF0FF;--mut:#9AA7C7;--line:#2A3556;--pri:#7FB0FF;--onpri:#0D1424;--ok:#4FD1A5;--mid:#F2B84B;--bad:#FF6B7F;--hl:#4A1F2A}}
+:root[data-theme=dark]{--bg:#0D1424;--card:#172038;--ink:#EAF0FF;--mut:#9AA7C7;--line:#2A3556;--pri:#7FB0FF;--onpri:#0D1424;--ok:#4FD1A5;--mid:#F2B84B;--bad:#FF6B7F;--hl:#4A1F2A}
+*{box-sizing:border-box}html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--ink);font:16px/1.45 "Segoe UI",Roboto,system-ui,sans-serif}
+#app{max-width:480px;margin:0 auto;height:100%;display:flex;flex-direction:column}
+header{padding:14px 16px 6px;display:flex;align-items:center;justify-content:space-between}
+header h1{font-size:20px;margin:0;font-weight:700}header small{color:var(--mut);display:block;font-size:13px}
+main{flex:1;overflow-y:auto;padding:8px 16px 16px}
+nav{display:flex;background:var(--card);border-top:1px solid var(--line)}
+nav button{flex:1;padding:10px 2px;border:0;background:none;color:var(--mut);font:inherit;font-size:12px;cursor:pointer}
+nav button b{display:block;font-size:20px;font-weight:400}nav button.on{color:var(--pri);font-weight:700}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:12px}
+h2{font-size:17px;margin:0 0 8px}p{margin:0 0 8px}.mut{color:var(--mut);font-size:14px}
+textarea,input{width:100%;font:inherit;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:10px}
+textarea{min-height:130px;resize:vertical}
+.btn{display:inline-block;border:0;border-radius:10px;padding:12px 16px;font:inherit;font-weight:700;background:var(--pri);color:var(--onpri);cursor:pointer}
+.btn.ghost{background:none;color:var(--pri);border:1px solid var(--pri)}.btn.full{width:100%}
+button:focus-visible,textarea:focus-visible,input:focus-visible{outline:3px solid var(--pri);outline-offset:2px}
+.row{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+.gauge{display:flex;align-items:center;gap:14px}
+.ring{width:96px;height:96px;border-radius:50%;display:grid;place-items:center;flex:none}
+.ring span{width:74px;height:74px;border-radius:50%;background:var(--card);display:grid;place-items:center;font-size:24px;font-weight:800}
+.lvl{font-size:20px;font-weight:800}
+mark{background:var(--hl);color:var(--ink);border-radius:4px;padding:0 2px}
+.flag{border-left:4px solid var(--bad);padding:6px 10px;margin:8px 0;background:var(--bg);border-radius:0 8px 8px 0}
+.flag.l{border-color:var(--mid)}.flag b{display:block}
+.item{display:flex;justify-content:space-between;gap:8px;padding:10px 0;border-bottom:1px solid var(--line)}
+.item:last-child{border:0}.tag{font-weight:700;font-size:13px;white-space:nowrap}
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.stats div{text-align:center}.stats b{font-size:22px;display:block}
+details{border-bottom:1px solid var(--line);padding:8px 0}summary{font-weight:600;cursor:pointer}
+.pill{display:inline-block;border:1px solid var(--line);border-radius:99px;padding:2px 10px;font-size:13px;margin:2px 0}
+.toast{position:fixed;left:50%;bottom:90px;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:10px;font-size:14px}
+.hidden{display:none}
+</style></head><body>
+<div id="app">
+<header><div><h1>🛡️ ScamShield</h1><small>Check it before you tap it</small></div><button class="btn ghost" id="theme" aria-label="Toggle theme">◐</button></header>
+<main id="view"></main>
+<nav id="nav"></nav>
+</div>
+<script>
+const $=s=>document.querySelector(s);
+const store={get(k,d){try{const v=localStorage.getItem(k);return v?JSON.parse(v):d}catch(e){return d}},set(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}};
+let mem={hist:[],user:null,pro:false,fb:[]};
+const S={hist:store.get('ss_hist',mem.hist),user:store.get('ss_user',null),pro:store.get('ss_pro',false),fb:store.get('ss_fb',[]),used:store.get('ss_used',{d:'',n:0})};
+const FREE=5;
+const esc=s=>s.replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+/* ---- Detection engine: weighted feature scoring (stands in for the ML model) ---- */
+const RULES=[
+{n:'Urgency pressure',w:15,re:/\b(urgent|immediately|right now|within \d+ ?(hours?|hrs?|mins?|minutes?)|last chance|expires?|today only|act now|final notice)\b/gi,why:'Scammers rush you so you do not stop to think or verify.'},
+{n:'Prize or free money',w:20,re:/\b(you (have )?won|winner|lottery|prize|reward points?|cashback|lucky draw|crore|lakh|free gift|claim (your )?(prize|reward))\b/gi,why:'Real prizes never ask you to pay or share details first. You cannot win a contest you did not enter.'},
+{n:'Asks for secret details',w:30,re:/\b(otp|one[- ]time password|cvv|upi pin|atm pin|\bpin\b|password|aadhaar|pan (card|number)|card number|net ?banking)\b/gi,why:'Banks, UPI apps and the government never ask for your OTP, PIN, CVV or password.'},
+{n:'Account block / KYC scare',w:22,re:/\b(kyc|account (will be |has been )?(blocked|suspended|closed|deactivated)|update (your )?(kyc|pan|details)|verify your account|sim (will be )?blocked)\b/gi,why:'Fake "KYC expired" or "account blocked" messages are a top phishing trick in India.'},
+{n:'Threat or fake authority',w:22,re:/\b(arrest|legal action|police|cbi|customs|narcotics|fir|digital arrest|court notice|warrant|trai|income tax (dept|department))\b/gi,why:'Real agencies do not threaten arrest by message or video call, or demand money to "settle" a case.'},
+{n:'Payment demand',w:18,re:/\b(processing fee|registration fee|security deposit|gift cards?|send (money|rs|₹)|transfer|pay (now|₹|rs)|refund fee|customs fee|collect request|scan (this )?qr)\b/gi,why:'Being asked to pay first to receive money, a parcel or a job is a classic advance-fee scam. Entering a UPI PIN only ever sends money out.'},
+{n:'Too-good-to-be-true job',w:22,re:/\b(work from home|part[- ]time (job|work)|earn (₹|rs\.?) ?\d+|per day|like (and )?subscribe|task[- ]based|daily income|no experience)\b/gi,why:'Easy-money task jobs often start with small payouts and then ask you to deposit larger amounts.'},
+{n:'Impersonated brand or agency',w:8,re:/\b(sbi|hdfc|icici|axis bank|rbi|paytm|phonepe|amazon|flipkart|fedex|dhl|india post|electricity board|jio|airtel)\b/gi,why:'Scammers borrow trusted names. Check using the official app or number, not the message.'},
+{n:'Link in message',w:10,re:/(https?:\/\/\S+|www\.\S+|\b(bit\.ly|tinyurl\.com|t\.co|cutt\.ly|rb\.gy)\/\S+)/gi,why:'Unexpected links can lead to fake login pages. Do not tap; open the official app instead.'},
+{n:'Shouting / excessive marks',w:5,re:/(!{2,}|\b[A-Z]{5,}\b(?:\s+\b[A-Z]{3,}\b){1,})/g,why:'Over-the-top capitals and exclamation marks are used to create panic or excitement.'}];
+function scanText(t){
+ let score=0,flags=[],spans=[];
+ RULES.forEach(r=>{const m=[...t.matchAll(r.re)];if(m.length){score+=Math.min(r.w+(m.length>1?4:0),r.w+4);flags.push({n:r.n,w:r.w,why:r.why,hits:[...new Set(m.map(x=>x[0].trim()))].slice(0,4)});m.forEach(x=>spans.push([x.index,x.index+x[0].length]))}});
+ if(flags.length>=4)score+=10;
+ score=Math.min(98,score);
+ if(!flags.length&&t.trim().length)score=3;
+ return{score,flags:flags.sort((a,b)=>b.w-a.w),spans};
+}
+function lvl(s){return s<25?{t:'Low risk',c:'var(--ok)',a:'No common scam signs found. Stay careful with anything unexpected.'}:s<55?{t:'Medium risk',c:'var(--mid)',a:'Some warning signs. Verify with the sender through an official channel before acting.'}:{t:'High risk',c:'var(--bad)',a:'Many scam signs. Do not reply, click or pay. Block and report it.'}}
+function highlight(t,sp){if(!sp.length)return esc(t);sp.sort((a,b)=>a[0]-b[0]);let o='',p=0;for(const[a,b]of sp){if(a<p)continue;o+=esc(t.slice(p,a))+'<mark>'+esc(t.slice(a,b))+'</mark>';p=b}return o+esc(t.slice(p))}
+function scanLink(u){
+ let s=0,f=[];u=u.trim();let url;
+ try{url=new URL(/^[a-z]+:\/\//i.test(u)?u:'http://'+u)}catch(e){return null}
+ const h=url.hostname.toLowerCase(),add=(w,n,why)=>{s+=w;f.push({n,w,why,hits:[]})};
+ if(url.protocol!=='https:')add(15,'Not using HTTPS','The connection is not encrypted. Never enter details on such a page.');
+ if(/^\d{1,3}(\.\d{1,3}){3}$/.test(h))add(30,'IP address instead of a name','Genuine businesses use proper domain names.');
+ if(/(bit\.ly|tinyurl|t\.co|cutt\.ly|rb\.gy|is\.gd)$/.test(h))add(20,'Shortened link','A short link hides where it really goes.');
+ if(/\.(xyz|top|click|cc|tk|icu|buzz|work|loan|zip|gq|ml)$/.test(h))add(20,'Risky domain ending','These endings are cheap and often used for throwaway scam sites.');
+ if(h.startsWith('xn--')||/xn--/.test(h))add(25,'Look-alike characters','Punycode can imitate a real site with similar-looking letters.');
+ if(u.includes('@'))add(20,'"@" symbol in link','Everything before @ is ignored by the browser and can disguise the real site.');
+ if((h.match(/-/g)||[]).length>=2)add(12,'Many hyphens in the name','Long hyphenated names such as "sbi-kyc-update" are typical of fake sites.');
+ if(h.split('.').length>4)add(12,'Too many sub-domains','The real domain is the last two parts only.');
+ const brands=['sbi','hdfc','icici','paytm','phonepe','amazon','flipkart','irctc','incometax','google','whatsapp'];
+ const root=h.split('.').slice(-2).join('.');
+ brands.forEach(b=>{if(h.includes(b)&&!new RegExp('^'+b+'[a-z]*\\.(com|in|co\\.in|gov\\.in|bank\\.in)$').test(root)&&!f.some(x=>x.n==='Pretends to be '+b.toUpperCase()))add(28,'Pretends to be '+b.toUpperCase(),'The name appears in the address, but the real domain is "'+root+'".')});
+ if(/(login|verify|kyc|secure|update|bonus|claim|refund|reward)/.test(url.pathname+h))add(10,'Pressure words in address','Words like verify, kyc or claim often appear in phishing pages.');
+ if(u.length>75)add(8,'Very long address','Long addresses can hide the real destination.');
+ return{score:Math.min(98,s),flags:f.sort((a,b)=>b.w-a.w),host:h};
+}
+
+/* ---- UI ---- */
+const TABS=[['scan','🔍','Scan'],['link','🔗','Links'],['hist','🕘','History'],['learn','📘','Learn'],['me','👤','Me']];
+let tab='scan',last=null;
+function toast(m){const t=document.createElement('div');t.className='toast';t.textContent=m;document.body.appendChild(t);setTimeout(()=>t.remove(),2200)}
+function today(){return new Date().toISOString().slice(0,10)}
+function quota(){if(S.pro)return true;if(S.used.d!==today())S.used={d:today(),n:0};return S.used.n<FREE}
+function useQuota(){if(!S.pro){S.used.n++;store.set('ss_used',S.used)}}
+function result(r,kind,text){
+ const L=lvl(r.score),deg=Math.round(r.score*3.6);
+ let h=`<div class="card"><div class="gauge"><div class="ring" style="background:conic-gradient(${L.c} ${deg}deg,var(--line) 0)"><span>${r.score}</span></div><div><div class="lvl" style="color:${L.c}">${L.t}</div><p class="mut">Risk score out of 100. This is an estimate, not proof.</p></div></div><p style="margin-top:10px">${L.a}</p></div>`;
+ if(kind==='msg')h+=`<div class="card"><h2>Message with warning words marked</h2><p>${highlight(text,r.spans)}</p></div>`;
+ h+=`<div class="card"><h2>Why this result</h2>`+(r.flags.length?r.flags.map(f=>`<div class="flag ${f.w<15?'l':''}"><b>${f.n}${f.hits&&f.hits.length?': '+f.hits.map(esc).join(', '):''}</b>${f.why}</div>`).join(''):'<p class="mut">No warning signs matched.</p>')+`</div>`;
+ if(r.score>=25)h+=`<div class="card"><h2>What to do now</h2><p>1. Do not click, reply or pay.<br>2. Call <b>1930</b> (cyber crime helpline) if money was lost, and report at <b>cybercrime.gov.in</b>.<br>3. Block the sender and forward to <b>1909</b> (DND spam).</p></div>`;
+ return h;
+}
+const V={
+scan(){return `<div class="card"><h2>Paste a suspicious message</h2><textarea id="txt" placeholder="Paste an SMS, WhatsApp or email text here"></textarea>
+<div class="row"><button class="btn" id="go">Check message</button><button class="btn ghost" id="ex">Try an example</button></div>
+<p class="mut" style="margin-top:8px">${S.pro?'Pro: unlimited checks':'Free checks left today: '+Math.max(0,FREE-(S.used.d===today()?S.used.n:0))+' of '+FREE}</p></div><div id="out"></div>`},
+link(){return `<div class="card"><h2>Check a link</h2><input id="lnk" placeholder="Paste a link, e.g. sbi-kyc-update.xyz/login" inputmode="url" autocapitalize="off"><div class="row"><button class="btn" id="go">Check link</button><button class="btn ghost" id="ex">Try an example</button></div></div><div id="out"></div>`},
+hist(){const n=S.hist.length,hi=S.hist.filter(x=>x.s>=55).length,me=S.hist.filter(x=>x.s>=25&&x.s<55).length;
+ return `<div class="card stats"><div><b>${n}</b><span class="mut">Checks</span></div><div><b style="color:var(--bad)">${hi}</b><span class="mut">High risk</span></div><div><b style="color:var(--mid)">${me}</b><span class="mut">Medium</span></div></div>
+ <div class="card"><h2>Previous checks</h2>`+(n?S.hist.map((x,i)=>{const L=lvl(x.s);return `<div class="item"><div><div>${x.k==='link'?'🔗':'📩'} ${esc(x.t.slice(0,60))}${x.t.length>60?'…':''}</div><span class="mut">${x.d}</span></div><div class="tag" style="color:${L.c}">${x.s} · ${L.t.split(' ')[0]}</div></div>`}).join('')+`<div class="row"><button class="btn ghost" id="clr">Clear history</button></div>`:'<p class="mut">No checks yet. Scan a message to see it here.</p>')+`</div>`},
+learn(){const q=[['What should I never share?','OTP, UPI PIN, card CVV, passwords and Aadhaar or PAN photos. No bank or government office will ask for them by message or call.'],['What is a "digital arrest"?','A fraud where callers pose as police or CBI on video call and say you are under arrest. No agency does this. Hang up and call 1930.'],['I already paid a scammer. What now?','Call 1930 immediately (the first hours matter most), tell your bank to freeze the transaction, and file a complaint at cybercrime.gov.in.'],['Is a padlock or HTTPS enough to trust a site?','No. Scam sites also use HTTPS. Check the exact domain name instead.'],['How does ScamShield decide?','It scores a message on warning signs such as urgency, secret-detail requests, threats, payment demands and risky links, then shows which words triggered it. It gives a risk estimate, not a guarantee.']];
+ return `<div class="card"><h2>Scam safety FAQ</h2>${q.map(x=>`<details><summary>${x[0]}</summary><p class="mut" style="margin-top:6px">${x[1]}</p></details>`).join('')}</div>
+ <div class="card"><h2>Need help now?</h2><p>Cyber crime helpline: <b>1930</b></p><p>Report online: <b>cybercrime.gov.in</b></p><div class="row"><a class="btn" href="tel:1930" style="text-decoration:none">📞 Call 1930</a><a class="btn ghost" href="https://wa.me/?text=${encodeURIComponent('Check suspicious messages before you tap them with ScamShield.')}" target="_blank" rel="noopener" style="text-decoration:none">Share app</a></div></div>`},
+me(){const u=S.user;
+ let h=u?`<div class="card"><h2>Hello, ${esc(u.name)}</h2><p class="mut">Plan: <span class="pill">${S.pro?'Pro':'Free'}</span></p><div class="row"><button class="btn ghost" id="out">Log out</button></div></div>`
+ :`<div class="card"><h2>Sign up (demo)</h2><input id="nm" placeholder="Your name"><div style="height:8px"></div><input id="ph" placeholder="Phone number" inputmode="tel"><p class="mut" style="margin-top:8px">We use your details only to keep your history. By signing up you consent as per the DPDP Act 2023. Stored on this device only in this demo.</p><button class="btn full" id="su">Create account</button></div>`;
+ h+=S.pro?'':`<div class="card"><h2>ScamShield Pro: ₹49/month</h2><p class="mut">Unlimited checks, family alerts, weekly scam trend report.</p><button class="btn full" id="pro">Upgrade</button></div><div id="pay" class="card hidden"><h2>Checkout (simulated)</h2><p>ScamShield Pro, 1 month: ₹49</p><p class="mut">Refund within 7 days. No money is charged in this demo.</p><div class="row"><button class="btn" data-pay="UPI">Pay with UPI</button><button class="btn ghost" data-pay="Card">Card</button></div></div>`;
+ h+=`<div class="card"><h2>Refer a friend</h2><p>Your code: <span class="pill">SHIELD-${(u?u.name:'FRIEND').slice(0,4).toUpperCase()}49</span></p><p class="mut">Friend gets 7 days of Pro; you get 7 days too (demo offer).</p></div>
+ <div class="card"><h2>Rate ScamShield</h2><div id="stars" class="row" style="font-size:26px">${[1,2,3,4,5].map(i=>`<button class="btn ghost" data-st="${i}" aria-label="${i} stars">★</button>`).join('')}</div><textarea id="fbt" style="min-height:60px;margin-top:8px" placeholder="Tell us what to improve"></textarea><button class="btn full" id="fb" style="margin-top:8px">Send feedback</button><p class="mut" style="margin-top:6px">Feedback sent: ${S.fb.length}</p></div>
+ <div class="card"><h2>Admin summary (demo)</h2><p class="mut">Total checks: ${S.hist.length} · High risk: ${S.hist.filter(x=>x.s>=55).length} · Feedback: ${S.fb.length} · Avg rating: ${S.fb.length?(S.fb.reduce((a,b)=>a+b.r,0)/S.fb.length).toFixed(1):'–'}</p></div>`;return h}
+};
+const EXM=['URGENT! Your SBI account will be blocked within 24 hours. Update KYC now: http://sbi-kyc-update.xyz/login and share the OTP to confirm.','Congratulations! You have won ₹25 lakh in the lucky draw. Pay a processing fee of ₹999 to claim your prize today.','Hi, your Amazon order has shipped and will arrive on Friday.'];
+let exi=0;
+function render(){
+ $('#nav').innerHTML=TABS.map(t=>`<button class="${t[0]===tab?'on':''}" data-t="${t[0]}"${t[0]===tab?' aria-current="page"':''}><b>${t[1]}</b>${t[2]}</button>`).join('');
+ $('#view').innerHTML=V[tab]();$('#view').scrollTop=0;bind();
+}
+function save(k,t,s){S.hist.unshift({k,t,s,d:new Date().toLocaleString('en-IN',{dateStyle:'medium',timeStyle:'short'})});S.hist=S.hist.slice(0,50);store.set('ss_hist',S.hist)}
+function bind(){
+ const g=$('#go');
+ if(tab==='scan'&&g){$('#ex').onclick=()=>{$('#txt').value=EXM[exi++%EXM.length]};g.onclick=()=>{const t=$('#txt').value.trim();if(!t)return toast('Paste a message first');if(!quota())return toast('Daily free limit reached. Upgrade in Me tab.');useQuota();const r=scanText(t);save('msg',t,r.score);$('#out').innerHTML=result(r,'msg',t);$('#out').scrollIntoView({behavior:'smooth'})}}
+ if(tab==='link'&&g){const LX=['sbi-kyc-update.xyz/login','http://192.168.4.12/paytm/verify','https://www.amazon.in/gp/help'];$('#ex').onclick=()=>{$('#lnk').value=LX[exi++%LX.length]};g.onclick=()=>{const u=$('#lnk').value.trim();if(!u)return toast('Paste a link first');if(!quota())return toast('Daily free limit reached. Upgrade in Me tab.');const r=scanLink(u);if(!r)return toast('That does not look like a valid link');useQuota();save('link',u,r.score);$('#out').innerHTML=result(r,'link',u);$('#out').scrollIntoView({behavior:'smooth'})}}
+ if(tab==='hist'&&$('#clr'))$('#clr').onclick=()=>{S.hist=[];store.set('ss_hist',[]);render()};
+ if(tab==='me'){
+  if($('#su'))$('#su').onclick=()=>{const n=$('#nm').value.trim(),p=$('#ph').value.trim();if(!n||!/^\d{10}$/.test(p))return toast('Enter a name and 10-digit phone');S.user={name:n};store.set('ss_user',S.user);render()};
+  if($('#out'))$('#out').onclick=()=>{S.user=null;store.set('ss_user',null);render()};
+  if($('#pro'))$('#pro').onclick=()=>$('#pay').classList.remove('hidden');
+  document.querySelectorAll('[data-pay]').forEach(b=>b.onclick=()=>{S.pro=true;store.set('ss_pro',true);render();toast('Paid ₹49 via '+b.dataset.pay+' (simulated). Pro active.')});
+  let st=0;document.querySelectorAll('[data-st]').forEach(b=>b.onclick=()=>{st=+b.dataset.st;document.querySelectorAll('[data-st]').forEach(x=>x.style.opacity=+x.dataset.st<=st?1:.4)});
+  $('#fb').onclick=()=>{if(!st)return toast('Choose a star rating');S.fb.push({r:st,t:$('#fbt').value});store.set('ss_fb',S.fb);toast('Thanks for your feedback');render()};
+ }
+}
+$('#nav').addEventListener('click',e=>{const b=e.target.closest('[data-t]');if(b){tab=b.dataset.t;render()}});
+$('#theme').onclick=()=>{const d=document.documentElement,dark=getComputedStyle(d).getPropertyValue('--bg').trim()==='#0D1424';d.setAttribute('data-theme',dark?'light':'dark')};
+render();
+</script></body></html>
